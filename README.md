@@ -20,7 +20,7 @@ when relevant, or you can invoke it explicitly with `/ps3-homebrew:<name>`:
 | Skill | Covers |
 | --- | --- |
 | [`psl1ght-build`](skills/psl1ght-build/SKILL.md) | Dockerized toolchain, `src.self`/`src.pkg` output, `-Wall`, small increments, transient emulation segfaults |
-| [`psl1ght-input`](skills/psl1ght-input/SKILL.md) | DualShock pad: `len==0` retained-packet gotcha, one-reader-per-port, two ports, edge vs level, deadzone |
+| [`psl1ght-input`](skills/psl1ght-input/SKILL.md) | DualShock pad: `len==0` retained-packet gotcha, one-reader-per-port, two ports, edge vs level, deadzone, **RSXGL: init pad after the GPU context + swap-pacing lag** (raylib hides both) |
 | [`psl1ght-rendering`](skills/psl1ght-rendering/SKILL.md) | Tiny3D + ya2d colour formats, deterministic camera, 2D depth (`LEQUAL`) draw order, **Clay for all UI**, `/dev_flash` fonts |
 | [`psl1ght-game-loop`](skills/psl1ght-game-loop/SKILL.md) | XMB-exit handshake, fixed timestep, fixed object pools, `bin2o` asset embedding |
 | [`psl1ght-audio`](skills/psl1ght-audio/SKILL.md) | MikMod: synthesize/load samples from memory, little-endian WAVs, looping music, defensive init |

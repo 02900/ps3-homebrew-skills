@@ -1,0 +1,10 @@
+{
+  "name": "ps3-homebrew",
+  "description": "Hard-won PS3 / PSL1GHT homebrew patterns, as Claude skills: the Docker toolchain & build workflow, DualShock pad input, Tiny3D/ya2d/Clay rendering, the game loop & asset embedding, MikMod audio, and porting existing games (engine rewrite or a C++/SFML framework-shim).",
+  "version": "1.0.0",
+  "author": { "name": "02900" },
+  "homepage": "https://github.com/02900/ps3-homebrew-skills",
+  "repository": "https://github.com/02900/ps3-homebrew-skills",
+  "license": "MIT",
+  "keywords": ["ps3", "psl1ght", "homebrew", "tiny3d", "ya2d", "mikmod", "clay", "porting"]
+}

@@ -5,7 +5,9 @@ description: >-
   text, a camera, or any HUD/menu in PS3 homebrew — the ARGB-vs-RGBA colour-format trap, a
   deterministic software camera, the 2D depth test (LEQUAL → draw order = paint order, don't
   bias z per-sprite), building ALL UI/HUD in Clay to avoid render glitches, and /dev_flash
-  system fonts.
+  system fonts. Also covers the raw RSXGL/OpenGL path (ps3-gl-test, mega-mario rsxgl-backend):
+  per-pixel __builtin_bswap32 for texture colours, fragment-shader uniforms being ignored, and
+  batching quads (+ per-string text flush) to hit 60fps without RSXGL text corruption.
 ---
 
 # Rendering (Tiny3D + ya2d + Clay)
@@ -94,3 +96,57 @@ ignores `cornerRadius` — borders are square.)
 
 System TTFs (`/dev_flash/data/font/SCE-PS3-*.TTF`) are present on real consoles and RPCS3. Load
 them via the `ttf_render` helper; don't ship your own for basic UI.
+
+---
+
+# Raw RSXGL (OpenGL) path — parallel to Tiny3D
+
+Some ports render 2D **directly on RSXGL** (OpenGL 3.1 over the RSX: EGL context, GLSL, VBOs)
+instead of Tiny3D — `ps3-gl-test`, and mega-mario's `rsxgl-backend`. It's standard
+column-major GL (none of Tiny3D's row-vector/+Z quirks), but the RSX driver has its own traps.
+See the **input** skill for the two load-bearing app gotchas (init the pad AFTER the EGL
+context; `eglSwapBuffers` doesn't throttle → pace to 60fps yourself) and link with the **C++
+driver** (`LD:=$(CXX)`, RSXGL's libGL is C++).
+
+## Textures come out channel-rotated — byte-swap every pixel ⚠️
+
+Upload `GL_RGBA`/`GL_UNSIGNED_BYTE` bytes `[R,G,B,A]` and the sampler returns them **rotated**
+(orange → magenta, green → purple). The tell: the `glClearColor` background looks right (it's
+not a texture) while every sprite is mis-coloured. Fix on the CPU — `__builtin_bswap32` each
+32-bit pixel (`[R,G,B,A] → [A,B,G,R]`) before `glTexImage2D`:
+
+```c
+uint32_t *px = (uint32_t *)rgba;
+for (size_t i = 0, n = (size_t)w * h; i < n; i++) px[i] = __builtin_bswap32(px[i]);
+```
+
+Known "buggy PS3 opengl driver" quirk — **raylib-ps3 does the identical thing** (`rtextures.c`
+`LoadTextureFromImage`, comment "Handle buggy PS3 opengl driver and swap endianess"), which is
+why raylib gets correct colours from the same `glTexImage2D(GL_RGBA)` call. White/symmetric
+textures (font atlas, 1×1 white) are unaffected either way. (This is the RSXGL cousin of the
+Tiny3D ARGB-vs-RGBA trap above — colour byte order bites on both paths, differently.)
+
+## RSXGL ignores extra fragment-shader uniforms ⚠️
+
+Only the texture **sampler** and **vertex** uniforms (the MVP/ortho matrix) actually work. Any
+other uniform read only in the fragment shader — an `int` mode, a `mat4` — comes back dead:
+`glGetUniformLocation` returns **-1** and the value never reaches the shader (reads as 0; a zero
+`mat4` → black/blank screen). Fragment dynamic branching on a uniform is likewise not honoured
+by the Cg compiler. **Do per-fragment variation on the CPU** (bake it into the texture or vertex
+data), not via a fragment uniform. (Cost two dead ends — a uniform swizzle selector, then a mat4
+permutation — before the CPU byte-swap above.)
+
+## Batch quads to hit 60fps — but flush text per-string ⚠️
+
+One `glBufferData`+`glDrawArrays` per quad is hundreds of tiny uploads/frame — a debug grid of
+~500 line-quads dropped mega-mario to ~20fps. **Batch:** accumulate quads into a CPU buffer,
+flush only on **texture change / buffer full / frame end**. Flushing on every texture change
+preserves painter's draw order, and consecutive same-texture quads (grid lines, solid rects)
+coalesce to ~1 draw → back to 60fps. **Exception — flush text per-string** so each glyph run
+stays a small draw: a big merged single-font-atlas `glDrawElements` is exactly what corrupts
+glyph vertices on RSXGL (the same failure raylib's rlgl hits when it merges all text into one
+batch). Controlling the batching yourself — small text draws, no merge — is the whole reason to
+go raw instead of raylib.
+
+A built-in **8×8 bitmap font** baked into an atlas texture (public-domain `font8x8`) covers ASCII
+with no TTF/FreeType and no `/dev_flash` dependency — a good fit for the raw path.

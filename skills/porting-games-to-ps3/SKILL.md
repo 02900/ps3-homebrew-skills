@@ -2,10 +2,13 @@
 name: porting-games-to-ps3
 description: >-
   Porting an existing game to PS3 homebrew (PSL1GHT). Use when bringing another game to PS3.
-  Two strategies: (a) rewrite an engine game (Unity, etc.) in C with hand-rolled physics and
+  Three strategies: (a) rewrite an engine game (Unity, etc.) in C with hand-rolled physics and
   explicit state machines; (b) wrap a C++/SFML/SDL/raylib game behind a thin framework-shim so
-  its logic compiles nearly unchanged. Covers C++/C interop, gcc-7.2/newlib gaps, sprite
-  sub-rects, virtual-resolution mapping, asset embedding, and the subtle traps each path hits.
+  its logic compiles nearly unchanged; (c) reuse a C++ engine's logic verbatim and rewrite only
+  its I/O rind (window/input/render/asset+data load), baking any runtime data format (YAML/JSON)
+  into C++ on the host. Covers C++/C interop, gcc-7.2/newlib gaps, STL on PSL1GHT, raylib name
+  collisions, legacy-GL→raylib 2D, colour-key transparency, PCX→PNG, sprite sub-rects,
+  virtual-resolution mapping, asset+data embedding, and the subtle traps each path hits.
 ---
 
 # Porting a game to PS3 homebrew
@@ -16,6 +19,12 @@ Pick the strategy by what the original is:
   (there's no engine to port). See **Strategy A**.
 - **Already C++/C on a portable framework (SFML, SDL, raylib…) → wrap the framework behind a
   thin shim** so the game code compiles nearly unchanged. See **Strategy B**.
+- **C++ engine wired directly to SDL2 + raw OpenGL + a data lib (yaml-cpp…), no single clean
+  framework boundary → reuse the logic files verbatim and rewrite only the I/O rind.** See
+  **Strategy C**.
+
+Whatever the strategy, if the original loads config/level/character **data at runtime**, see
+**Baking runtime data → C++** — it applies across all three.
 
 ---
 
@@ -121,6 +130,94 @@ unchanged.
   screen (e.g. ~210 tiles wide, ~30 visible). Compute the sprite's screen AABB and skip if it
   misses the 848×512 canvas — both a perf win and it keeps the per-frame tiny3d draw count in the
   range the renderer is proven at.
+
+---
+
+## Strategy C — reuse the engine, rewrite only the I/O rind
+
+When the original is C++ but wired **directly** to SDL2 + raw OpenGL + a data lib (yaml-cpp, etc.)
+with no single framework namespace to shim, don't shim and don't rewrite the logic. **Split the
+tree into pure logic vs the I/O rind, keep the logic files verbatim, and rewrite only the rind.**
+(Case study: OpenFight, a 2D fighter — ~15 engine files reused unchanged, ~5 I/O files rewritten,
+onto raylib/RSXGL.)
+
+- **The logic is plain STL — it compiles unchanged.** State machines, animation timing, collision
+  math, entity/object managers, move-sequence recognisers: bring them over as-is. Only these
+  concerns are rewritten — **window+loop, input, rendering, asset load, data load**. Identify the
+  handful of files that `#include <SDL2/…>` / GL / the data lib; those are the rind.
+- **STL works on PSL1GHT** because RSXGL's libGL is C++, so the Makefile links with the C++ driver
+  (`LD := $(CXX)`) → libstdc++ is present: `std::map/list/string/vector`, `shared_ptr`, `iostream`,
+  **RTTI/`typeid`** and exceptions all link. You do *not* need `-fno-exceptions/-fno-rtti` if the
+  game uses them (unlike the lean Strategy-B shim).
+- **Type/compat shims let big files compile untouched.** Provide the numeric aliases the code
+  expects instead of editing it: a `gl.h` shim (`typedef float GLfloat; typedef unsigned int
+  GLuint;` — no GL) and a `compat.h` (`SDL_GetTicks()` → `(unsigned)(GetTime()*1000)` via raylib).
+  Strip the `<SDL2/…>` includes from the headers you bring over (one `sed`), and drop the globals
+  the rind owned to slim headers (e.g. a `graphicsCore.h` down to just the object registry).
+- **Rewrite the data loader, not its consumers.** The one file that touched yaml-cpp became a
+  `chardata.cpp` that builds the *same* runtime objects from baked structs (see below); Player,
+  Animation, etc. never changed. Swap the leaf, keep the tree.
+
+### raylib-on-PS3 I/O (rind rewrites)
+
+- **⚠️ Identifier collisions with raylib's headers.** raylib's `KeyboardKey` enum defines
+  `KEY_UP`/`KEY_A`/… (=265/65). A ported game with its own `enum { KEY_UP … KEY_A … }` collides
+  ("redeclaration of 'KEY_A'") in any TU that includes both `raylib.h` and the game header. **Rename
+  the game's enum** (e.g. `OFK_*`) across its files — mechanical `perl -pi -e 's/\bKEY_(…)\b/OFK_$1/g'`.
+- **Legacy fixed-function GL → raylib 2D.** `glBegin`/`glVertex`/`gluPerspective`/`glTranslatef`
+  don't exist. If the original draws a flat Z=0 scene through a *fixed* perspective camera,
+  reproduce the **on-screen layout** in raylib screen space instead of a GL camera: at a fixed eye
+  depth `d`, `gluPerspective(fovy)` maps a world half-height `d·tan(fovy/2)` onto `H/2`, so
+  `scale = (H/2)/(d·tan(fovy/2))` px per world unit; `screen = center + (world − origin)·scale`
+  (invert Y). Draw with `DrawTexturePro` — a **negative `source.width` flips horizontally**, which
+  matches sprite facing-flip for free.
+- **Colour-key transparency (alpha-less sprites).** Originals that key a colour to transparent (SDL
+  surface mask passes) → at load: `ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)` then
+  `ImageColorReplace(&img, BLACK, BLANK)`, then draw with normal alpha blend. raylib-ps3 does have
+  `ImageColorReplace`/`ImageFormat`/`LoadImageColors`.
+- **⚠️ raylib can't decode PCX (and some other formats).** Convert to PNG on the host in the baker
+  (Pillow: `Image.open(pcx).convert("RGB").save(png)`); embed the PNG.
+
+### Runtime & mode traps (both C and C++ ports)
+
+- **⚠️ Guard null derefs when running a reduced mode.** Two-player logic exercised with one player:
+  a `opponent->index = …` write with `opponent == NULL` crashes as an **RPCS3 "Access violation
+  writing location 0x44"** (null + member offset). Bring modes up incrementally and guard the
+  absent side (`if (opponent) …`).
+- **⚠️ Snapshot before iterating a container whose entries spawn mid-`update()`.** A projectile's
+  `update()` can spawn a burst → adds to the object registry → invalidates a live map iterator.
+  Take a `keys()` snapshot first, iterate that (skip already-removed, remove finished). Also **cull
+  escaped projectiles** (off-stage past a bound) or missed shots leak forever on a 200 MB console.
+- **Testing reality on RPCS3.** It **recompiles PPU modules on every new binary** (slow first boot —
+  wait it out, ~60 s, it caches). Gamepad-driven behaviour can't be verified headless: a **clean
+  boot still validates a lot** — malformed baked data or a bad texture crashes at *load/init* (esp.
+  when the whole spawn-object graph is registered up front), so boot-clean proves data + init +
+  decode; only live input/hit-trades need a real controller.
+
+---
+
+## Baking runtime data → C++ (any strategy)
+
+Desktop games load config / levels / character data at runtime (yaml-cpp, JSON, XML…). PS3 has
+**no runtime filesystem**, and cross-compiling a heavy C++ parser (yaml-cpp: exceptions, RTTI,
+`std::string` churn) is a rabbit hole. **Bake the data into C++ on the host at build time** — it
+kills both problems at once.
+
+- **Host script (Python) parses the data → emits a committed C++ header of plain structs.** The PS3
+  build needs no parser and no files. Keep the generated header + the embedded assets committed;
+  the baker is a dev-time tool (document its deps — pyyaml, Pillow). Put the source data in a
+  gitignored `vendor/` checkout of the original's assets.
+- **Follow references to bake the whole graph.** If data points at more data (a character's move
+  spawns a projectile defined in another file, which spawns a burst in a third), **BFS-discover**
+  from the entry file and bake every reachable object into one table, keyed by the exact path
+  strings the engine passes to its spawn/create calls — so the runtime lookup is a string match.
+- **Replace the runtime loader, keep its consumers.** Rewrite only the file that parsed the format;
+  have it build the same objects from the baked structs. Everything downstream is untouched.
+- **⚠️ bin2o symbols from digit-leading filenames are invalid C identifiers.** `1punch00.png` →
+  `1punch00_png` won't compile as an `extern`. Have the baker **sanitise** each asset to a C-safe
+  name (prefix a `_`, replace non-alnum) and copy/convert the file to `data/<sanitised>.png`, then
+  reference that symbol from the generated table. Dir-prefix the name (`ryu/idle00` → `ryu_idle00`)
+  so frames from different objects don't collide.
 
 ### Assets without a filesystem
 

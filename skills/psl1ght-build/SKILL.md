@@ -22,8 +22,11 @@ description: >-
   PS3_IP=192.168.x.x ./scripts/deploy.sh                        # ps3load to a console
   ```
   `DOCKER_DEFAULT_PLATFORM` is read by the Docker CLI itself, so the scripts need no
-  `--platform` flag (the image is x86_64; Apple Silicon emulates it). The toolchain image is
-  `ghcr.io/02900/ps3-toolchain:latest`.
+  `--platform` flag (the image is x86_64; Apple Silicon emulates it). **Pick the toolchain
+  image by renderer** — the base is a render-agnostic core and each renderer is a variant
+  built FROM it: `ghcr.io/02900/ps3-toolchain` (core: ppu-gcc + PSL1GHT + libpng/mikmod/
+  polarssl/curl/mini18n), `-tiny3d` (core + Tiny3D/ya2d), `-rsxgl` (core + RSXGL), `-raylib`
+  (rsxgl + raylib). A Tiny3D app builds on `-tiny3d`, a raw-GL app on `-rsxgl`, etc.
 - **Output is named after the mount dir.** Mounted at `/src`, the Makefile's
   `TARGET := $(notdir $(CURDIR))` makes `src.elf` / `src.self` / `src.pkg`. Deploy/CI match by
   glob or `src.self`, not a repo-named file.

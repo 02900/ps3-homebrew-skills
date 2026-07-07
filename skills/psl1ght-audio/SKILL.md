@@ -13,6 +13,11 @@ MikMod plays tracker **modules** and **samples** (PCM) — it **cannot decode OG
 with `MikMod_Update()` once per frame and reserve voices with `MikMod_SetNumVoices(music, sfx)`
 (sample playback needs sfx voices reserved).
 
+> **raylib-on-PS3 has no working audio device.** On the RSXGL/raylib stack, raylib's
+> `InitAudioDevice`/`LoadSound`/`PlaySound` aren't linkable (undefined references — even from
+> dead code). MikMod, below, *is* the audio path for raylib ports too: embed the game's `.wav`s
+> and load them with `Sample_LoadGeneric` via an MREADER (see *Load audio from memory*).
+
 ## Synthesize SFX in code — no assets needed
 
 You can generate sound effects procedurally: build a PCM waveform with math (a decaying sine for

@@ -80,9 +80,17 @@ unchanged.
   C++20-only constructs (concepts, ranges, `<bit>`) as you hit them. `-fno-exceptions -fno-rtti`
   keeps the binary lean if the game doesn't need them.
 - **newlib's libstdc++ lacks `std::to_string` / `std::stoi` / `std::stof`** ("'to_string' is not
-  a member of 'std'"). Provide them in a tiny `ps3_compat.h` (snprintf / strtol based) and
-  **force-include it everywhere** via `CXXFLAGS += -include ps3_compat.h` — no edits to the
-  original source needed.
+  a member of 'std'"; `_GLIBCXX_USE_C99` is unset for this target). Provide them in a tiny
+  `ps3_compat.h` (snprintf / strtol based) and **force-include it everywhere** via
+  `CXXFLAGS += -include ps3_compat.h` — no edits to the original source needed. (For a port with
+  only a couple of call sites, a namespaced `compat::to_string` you swap in by hand is fine too.)
+  ⚠️ **The same C99 gap hits the shim's own deps:** `std::snprintf` is *also* absent — call the
+  **global `snprintf`** (`#include <stdio.h>`), not `std::snprintf`, inside the shim.
+- **⚠️ `<filesystem>` is unavailable.** gcc 7.2 ships it only as `<experimental/filesystem>` (and
+  it won't link cleanly here), so a game that scans an asset directory at runtime
+  (`std::filesystem::directory_iterator` over `assets/`) won't compile. Drop the scan entirely —
+  embed the assets and load them from memory (see *Assets without a filesystem*); replace the
+  dir-walk with a static table of `{key, embedded_ptr, size}`.
 - **⚠️ A slim shim won't pull the transitive includes the original leaned on.** The game called
   `abs()` on **floats**. Upstream, `<cmath>` arrived transitively (via SFML headers) so it bound
   to the float overload; the lean shim didn't include it, so `abs()` resolved to C's **`abs(int)`**
@@ -139,7 +147,12 @@ When the original is C++ but wired **directly** to SDL2 + raw OpenGL + a data li
 with no single framework namespace to shim, don't shim and don't rewrite the logic. **Split the
 tree into pure logic vs the I/O rind, keep the logic files verbatim, and rewrite only the rind.**
 (Case study: OpenFight, a 2D fighter — ~15 engine files reused unchanged, ~5 I/O files rewritten,
-onto raylib/RSXGL.)
+onto raylib/RSXGL.) **The cleanest form is porting a game that is *already* raylib** (case study:
+ray-chess): no rendering shim and no data-baking at all — the entire chess engine compiles verbatim
+and only three rind concerns change — mouse→gamepad input, the `std::filesystem` asset scan→bin2o
+embedding, and raylib-audio→MikMod. When the source is already raylib, expect the port to be almost
+entirely deletions in the I/O layer plus the toolchain traps above (`std::to_string`, `<filesystem>`,
+raylib audio).
 
 - **The logic is plain STL — it compiles unchanged.** State machines, animation timing, collision
   math, entity/object managers, move-sequence recognisers: bring them over as-is. Only these
@@ -177,6 +190,14 @@ onto raylib/RSXGL.)
   `ImageColorReplace`/`ImageFormat`/`LoadImageColors`.
 - **⚠️ raylib can't decode PCX (and some other formats).** Convert to PNG on the host in the baker
   (Pillow: `Image.open(pcx).convert("RGB").save(png)`); embed the PNG.
+- **⚠️ raylib's audio backend isn't wired up on the RSXGL stack.** `InitAudioDevice` /
+  `LoadSound` / `PlaySound` / `LoadSoundFromWave` are **not linkable** — and because the linker
+  needs the symbol whether or not it runs, even a *dead-code* reference (a mouse handler that never
+  fires on PS3) fails the link with `undefined reference to 'PlaySound'`. **Strip every raylib-audio
+  call from the rind** and route SFX/music through **MikMod** instead (see the **psl1ght-audio**
+  skill): embed the original `.wav`s (as `data/*.bin`) and load them with `Sample_LoadGeneric` via
+  an in-memory `MREADER` — no re-synthesis needed, the real sounds play. Leave `-laudio`/`-lmikmod`
+  in `LIBS`; only the raylib calls must go.
 
 ### Runtime & mode traps (both C and C++ ports)
 

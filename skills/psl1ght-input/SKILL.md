@@ -76,7 +76,7 @@ if (!(pd.ANA_L_H == 0 && pd.ANA_L_V == 0)) { mx = axis(pd.ANA_L_H); mz = -axis(p
 
 ## On RSXGL / OpenGL: two input failures that don't happen with Tiny3D ⚠️
 
-The raw RSXGL/OpenGL path (e.g. `ps3-gl-test`) hits two pad problems that Tiny3D/ya2d apps
+The raw RSXGL/OpenGL path (e.g. `ps3-boilerplate-rsxgl`) hits two pad problems that Tiny3D/ya2d apps
 never see — both because RSXGL owns the GPU init that Tiny3D otherwise did for you.
 
 ### 1. Init the pad AFTER the GPU context
@@ -121,7 +121,7 @@ while (running) {
 
 ### raylib hides both
 
-The `raylib-ps3` port (e.g. `ps3-raylib-test`) sets up EGL, inits the pad in the right order,
+The `raylib-ps3` port (e.g. `ps3-boilerplate-raylib`) sets up EGL, inits the pad in the right order,
 and paces frames (`SetTargetFPS(60)`) for you. Use raylib's gamepad API and none of the above
 applies: `IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP/DOWN/LEFT/RIGHT)` for the D-pad
 (edge-triggered already), `GAMEPAD_BUTTON_MIDDLE_RIGHT` for Start, and

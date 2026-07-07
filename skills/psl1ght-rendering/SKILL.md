@@ -5,7 +5,7 @@ description: >-
   text, a camera, or any HUD/menu in PS3 homebrew — the ARGB-vs-RGBA colour-format trap, a
   deterministic software camera, the 2D depth test (LEQUAL → draw order = paint order, don't
   bias z per-sprite), building ALL UI/HUD in Clay to avoid render glitches, and /dev_flash
-  system fonts. Also covers the raw RSXGL/OpenGL path (ps3-gl-test, mega-mario rsxgl-backend):
+  system fonts. Also covers the raw RSXGL/OpenGL path (ps3-boilerplate-rsxgl, mega-mario rsxgl-backend):
   per-pixel __builtin_bswap32 for texture colours, fragment-shader uniforms being ignored, and
   batching quads (+ per-string text flush) to hit 60fps without RSXGL text corruption.
 ---
@@ -102,7 +102,7 @@ them via the `ttf_render` helper; don't ship your own for basic UI.
 # Raw RSXGL (OpenGL) path — parallel to Tiny3D
 
 Some ports render 2D **directly on RSXGL** (OpenGL 3.1 over the RSX: EGL context, GLSL, VBOs)
-instead of Tiny3D — `ps3-gl-test`, and mega-mario's `rsxgl-backend`. It's standard
+instead of Tiny3D — `ps3-boilerplate-rsxgl`, and mega-mario's `rsxgl-backend`. It's standard
 column-major GL (none of Tiny3D's row-vector/+Z quirks), but the RSX driver has its own traps.
 See the **input** skill for the two load-bearing app gotchas (init the pad AFTER the EGL
 context; `eglSwapBuffers` doesn't throttle → pace to 60fps yourself) and link with the **C++

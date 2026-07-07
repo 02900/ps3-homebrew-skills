@@ -28,17 +28,21 @@ description: >-
 
 ## Debug FPS / CPU / RAM overlay
 
-A toggleable stats overlay is cheap and worth having. FPS is trivial (raylib `GetFPS()`); the two
-non-obvious pieces:
+A toggleable stats overlay is cheap and worth having. The RAM and no-CPU%-API points below are
+**renderer-agnostic** (any PSL1GHT project). The frame-timing helpers named are **raylib-specific**
+(`GetFPS`/`GetFrameTime`/`GetTime`/`SetTargetFPS`/`EndDrawing` exist only in the raylib variant) — on
+tiny3d / rsxgl you count frames yourself and read a system timer; the *principle* still holds.
 
-- **⚠️ Don't use `GetFrameTime()` as a CPU-load metric.** Under `SetTargetFPS`, raylib folds the
-  vsync / target wait into it, so it reads ~16.6 ms regardless of actual load. Measure the work
-  yourself: `t0 = GetTime()` at the top of the loop, then `work_ms = (GetTime()-t0)*1000` **after
-  all `Draw*` calls but before `EndDrawing()`** (that's where the swap + wait happen — draw the
-  panel with the *previous* frame's value). `work_ms / 16.67` is the frame-budget load %. A trivial
-  2D game reads ~0.2 ms (1%).
-- **RAM used/total: PS3 syscall 352, which PSL1GHT doesn't wrap.** Declare it yourself with the
-  `lv2syscall1` pattern from `<sys/memory.h>` (in a `.c` TU):
+- **⚠️ Measure CPU work-time, not total frame time.** The buffer-flip call blocks on vsync, so timing
+  across it just measures the wait. Sample from the top of the loop to **just before the flip**:
+  `t0 = clock()` at loop start, `work_ms = (clock() - t0) * 1000` right before the present call
+  (raylib `EndDrawing()`, tiny3d `tiny3d_Flip()`, rsxgl the egl/RSX flip); draw the panel with the
+  *previous* frame's value. `work_ms / 16.67` is the frame-budget load %; a trivial 2D game reads
+  ~0.2 ms (1%). **raylib note:** `GetFrameTime()` is useless as a load metric — under `SetTargetFPS`
+  it folds in the wait and reads ~16.6 ms regardless — so use `GetTime()` deltas as above. `GetFPS()`
+  gives FPS directly; on other renderers derive it from a 1-second frame counter.
+- **RAM used/total: PS3 syscall 352, which PSL1GHT doesn't wrap** (works on every renderer). Declare
+  it yourself with the `lv2syscall1` pattern from `<sys/memory.h>` (in a `.c` TU):
   ```c
   #include <ppu-lv2.h>
   typedef struct { u32 total; u32 avail; } mem_info_t; // bytes

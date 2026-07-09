@@ -13,7 +13,18 @@ description: >-
 - **Clean XMB exit:** register once with `sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, cb, NULL)`,
   then call `sysUtilCheckCallback()` **every frame**; set a `running = 0` flag on
   `SYSUTIL_EXIT_GAME`. Without the per-frame check the console can't reclaim the app (it appears
-  to hang on quit).
+  to hang on quit). (raylib's `EndDrawing`/`WindowShouldClose` already pump this for you.)
+- **⚠️ sysutil modal dialogs (Saved Data Utility, message dialogs) must run on a background
+  thread.** `sysSaveListSave2`/`Load2` (and `msgDialog*`) **block** until the user dismisses the XMB
+  overlay, but that overlay is driven by `sysUtilCheckCallback()` — so if you call them inline you
+  deadlock (the loop that pumps callbacks is stuck in the blocking call). Spawn a `sysThreadCreate`
+  worker that runs the blocking call while your **main loop keeps rendering + pumping
+  `sysUtilCheckCallback()`**, and poll a `volatile` status flag the worker sets on completion. The
+  save dialog needs a `sysMemContainerCreate` (~5 MB) and three callbacks (list → offer a new-save
+  slot; status → PARAM.SFO title/subtitle/detail + recreate mode; file → write/read ICON0 + your data
+  blob). Return codes: `SYS_SAVE_RETURN_DONE` / `_CANCELED`. Link `-lsysutil` (see the psl1ght-build
+  skill's SPRX note). Serialize your own save blob (magic+version, fixed-size fields — same-endian
+  on PPU, no swaps); a chess port packed the full position + move history and resumed exactly.
 - **Fixed timestep.** The loop runs at vsync (`tiny3d_Flip` waits for it); use a constant
   `FRAME_DT = 1/60` for rates (speeds, charge/sec, gravity) instead of measuring wall time.
   Simple and deterministic, and it matches the original's tuning for most ports.

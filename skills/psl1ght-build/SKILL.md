@@ -39,3 +39,12 @@ description: >-
   x86_64 image runs emulated on Apple Silicon. It's not your code — just re-run.
   `scripts/build.sh` retries automatically; don't go hunting a code cause unless the failure is
   *deterministic* (same error every run).
+- **⚠️ `undefined reference to sysFsOpen` / `sysSaveListSave2` means a missing `-l`, NOT a broken
+  toolchain.** PSL1GHT's sysutil/sysfs are **SPRX stub libraries** (`libsysfs.a`, `libsysutil.a`) —
+  filesystem (`sysFsOpen/Read/Write/Close/Mkdir`, `<lv2/sysfs.h>`) needs **`-lsysfs`**; savedata
+  (`sysSaveListSave2/Load2`, `<sysutil/save.h>`) is in **`-lsysutil`**. The default boilerplate
+  `LIBS` often omits `-lsysfs` — add it. **Don't diagnose lib contents with `ppu-gcc-nm`**: the
+  gcc-nm wrapper reports **zero symbols** for these SPRX archives (LTO-plugin quirk), which looks
+  like "the toolchain didn't build them." Use the **binutils `powerpc64-ps3-elf-nm`** (shows the
+  `__sysFsOpen` T stubs + `sysFsOpen` D entries), or just do a link test — `ppu-gcc t.o -lsysfs`.
+  The functions are there; you're just not linking them.

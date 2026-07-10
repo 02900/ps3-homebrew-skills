@@ -100,3 +100,9 @@ since a controller-only game can't otherwise be tested headless. PSL1GHT has BSD
   there when debugging startup.
 - **Gate it behind a build flag** (e.g. `NETTEST`) so the shipped PKG opens no port — and see the
   build skill's note: toggling that flag needs a clean rebuild.
+- **Expose a position/state-setup command, not just move-drivers.** Reaching a specific rule state
+  (stalemate, a mate pattern, a timeout, a scoring edge case) by replaying legal moves is long and
+  brittle. A `setup <FEN>` / `setup4 <placements>` / `setclock <t>` command that rebuilds the game
+  state directly — then recomputes legality and runs end-of-game detection — makes each scenario a
+  1-liner and deterministic. Gate these behind the same test flag; keep the coordinate mapping the
+  same as the move commands.

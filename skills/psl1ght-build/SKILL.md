@@ -48,3 +48,11 @@ description: >-
   like "the toolchain didn't build them." Use the **binutils `powerpc64-ps3-elf-nm`** (shows the
   `__sysFsOpen` T stubs + `sysFsOpen` D entries), or just do a link test — `ppu-gcc t.o -lsysfs`.
   The functions are there; you're just not linking them.
+- **⚠️ A compile flag toggled via the environment won't force a rebuild — clean when you flip
+  it.** If you gate optional code on `-D<FLAG>` selected by an env var (e.g. a `NETTEST=1` build
+  that adds a source dir + a define), the incremental `make` does **not** track the flag: switching
+  between a normal build and a flagged build leaves the *unchanged* `.o` files (e.g. `Game.o`)
+  compiled the *old* way. Classic symptom: the new TU links fine and its strings are in the binary,
+  but the feature is silently absent because the *caller* was never recompiled with the define. Fix:
+  have the flagged-build wrapper run `make clean` first (a full rebuild is the price of a correct
+  flag), or make the flag a tracked dependency. Don't chase a runtime/emulator cause first.

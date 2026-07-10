@@ -63,3 +63,40 @@ tiny3d / rsxgl you count frames yourself and read a system timer; the *principle
   `total == 0` for emulators that stub the syscall (show `n/a`).
 - **There is no OS CPU-% API on PSL1GHT** — nothing in the headers. The frame work-time above is the
   honest processor-load proxy on a fixed-clock console.
+
+## Networking: a PC-driven TCP command / e2e-test server
+
+A tiny TCP server inside the game lets a PC drive it over the network — invaluable for
+**automated end-to-end testing** (send moves / button presses, read back state and assert rules),
+since a controller-only game can't otherwise be tested headless. PSL1GHT has BSD-style sockets
+(`-lnet`, already linked in most boilerplates). Pattern (mirrors ps3-remote-play's `imgserver.c`):
+
+- **Init once**: `sysModuleLoad(SYSMODULE_NET); netInitialize();` then a listen socket on a
+  background `sysThreadCreate` thread — `netSocket(AF_INET,SOCK_STREAM,IPPROTO_TCP)` →
+  `netSetSockOpt(SO_REUSEADDR)` → `netBind(INADDR_ANY,port)` → `netListen` →
+  `netPoll`/`netAccept` loop (headers `<net/net.h> <net/poll.h> <sys/socket.h> <netinet/in.h>
+  <arpa/inet.h>`). Recv/send are `netRecv`/`netSend`; close is `netClose`.
+- **Never touch game state off the main thread.** The socket thread only parses a command and
+  hands it to the main loop via a mutex/cond handoff, then blocks for the reply — the main loop
+  drains one command per frame, runs it (calling the *real* engine paths), posts the reply. One
+  outstanding request at a time gives the harness clean synchronous request/response and keeps all
+  state mutation single-threaded (same discipline as the savedata pattern above).
+- **Synthetic input.** OR a "synthetic pad" (a per-frame pressed/down bitset) into your input
+  helpers (`padPressed`/`padDown`/…). A `press <button>` command sets it for one frame, cleared at
+  end of frame → one edge-triggered press that drives real menus/cursor/moves exactly like a
+  controller. Do the drain at the top of the loop so the synthetic press is live for that frame's
+  handler.
+- **⚠️ RPCS3 lv2-primitive quirks will silently kill the server.** Creating the handoff mutex with
+  `SYS_MUTEX_ATTR_ADAPTIVE`, or the cond with `attr_pshared = 0`, **fails on RPCS3** (`CELL_EINVAL`).
+  Use **`SYS_MUTEX_ATTR_NOT_ADAPTIVE`** and **`SYS_COND_ATTR_PSHARED`**. And don't *abort* startup on
+  a failed primitive — degrade (lock/unlock become no-ops when there's one client; poll instead of
+  cond-wait) so a create failure can't leave nothing listening.
+- **RPCS3 does expose a guest listener on the host** (reachable at `127.0.0.1:<port>` — confirm with
+  `lsof -iTCP -sTCP:LISTEN | grep <port>`), so the same harness runs against RPCS3 or a real PS3 on
+  the LAN. The net stack can need a moment after `netInitialize`, so **retry `bind`/`listen`** in a
+  short backoff loop instead of giving up on the first miss.
+- **printf goes to TTY, not the launcher's stdout.** Diagnostic `printf` lands in RPCS3's log file
+  (`~/Library/Application Support/rpcs3/RPCS3.log`), not the terminal you launched it from — grep
+  there when debugging startup.
+- **Gate it behind a build flag** (e.g. `NETTEST`) so the shipped PKG opens no port — and see the
+  build skill's note: toggling that flag needs a clean rebuild.

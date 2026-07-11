@@ -81,6 +81,22 @@ Two patterns cover almost any game HUD purely in Clay:
 
 Text, borders, images and semi-transparent backgrounds all render (alpha blends).
 
+⚠️ **Enable alpha blending BEFORE `clay_render`, or every TTF glyph draws on an opaque
+BLACK BOX.** The glyph quads are `A4R4G4B4` textures whose non-glyph pixels are transparent;
+with blending off they composite as solid black, so each text string sits in an ugly black
+rectangle. Set it once per frame right after `tiny3d_Clear`, before `tiny3d_Project2D()` /
+`reset_ttf_frame()` / `clay_render()` (the exact setup `ps3-homebrew-showcase` uses):
+```c
+tiny3d_Clear(clear, TINY3D_CLEAR_ALL);
+tiny3d_AlphaTest(1, 0x10, TINY3D_ALPHA_FUNC_GEQUAL);
+tiny3d_BlendFunc(1, TINY3D_BLEND_FUNC_SRC_RGB_SRC_ALPHA | TINY3D_BLEND_FUNC_SRC_ALPHA_SRC_ALPHA,
+                    TINY3D_BLEND_FUNC_DST_RGB_ONE_MINUS_SRC_ALPHA | TINY3D_BLEND_FUNC_DST_ALPHA_ZERO,
+                    TINY3D_BLEND_RGB_FUNC_ADD | TINY3D_BLEND_ALPHA_FUNC_ADD);
+tiny3d_Project2D();
+```
+Put this in a C helper (the `... | ...` enum-OR needs an implicit int→enum that C allows but
+C++ rejects without casts), and call it from the C++ game.
+
 **Build the Clay UI as a C TU even from a C++ game.** The `CLAY(...)` / `CLAY_TEXT_CONFIG(...)`
 macros are C compound-literals — happiest under `-std=gnu99` (the renderer's own language) and
 finicky in C++. Keep each screen's layout in a `.c` file and call it from the C++ game through a
@@ -95,7 +111,14 @@ ignores `cornerRadius` — borders are square.)
 ## Fonts come from `/dev_flash`
 
 System TTFs (`/dev_flash/data/font/SCE-PS3-*.TTF`) are present on real consoles and RPCS3. Load
-them via the `ttf_render` helper; don't ship your own for basic UI.
+them via the `ttf_render` helper; don't ship your own for basic UI. **`SCE-PS3-RD-R-LATIN.TTF`
+(Rodin, the XMB UI font) is the clean, legible default** — nicer than the `VR` face.
+
+⚠️ **`ttf_render`'s glyph atlas slots are 32×32, so keep Clay `fontSize` ≤ ~30.** A glyph is
+rasterized into a 32×32 cell then the quad is scaled to the requested size; anything bigger is
+upscaled and looks **blocky/pixelated** (a `fontSize: 64` title is mush). For a crisp large
+title either cap at ~30 or bump the atlas cell size in `ttf_render.c` (and the
+`tiny3d_AllocTexture` size) — the default 32² caps ~30px.
 
 ---
 

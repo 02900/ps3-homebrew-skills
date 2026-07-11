@@ -105,4 +105,12 @@ since a controller-only game can't otherwise be tested headless. PSL1GHT has BSD
   brittle. A `setup <FEN>` / `setup4 <placements>` / `setclock <t>` command that rebuilds the game
   state directly — then recomputes legality and runs end-of-game detection — makes each scenario a
   1-liner and deterministic. Gate these behind the same test flag; keep the coordinate mapping the
-  same as the move commands.
+  same as the move commands. If the reused engine exposes `get_state()`/`set_state()` plus `force_*`
+  mutators, the setup commands are trivial: read the state, mutate, write it back.
+- **You can self-run the suite headlessly** — boot RPCS3 with `--no-gui "$PWD/src.self"` (plain
+  `rpcs3 src.self` may sit at the game list and never boot; `--no-gui` forces boot-and-run). Then poll
+  `127.0.0.1:<port>` for a `ping`→`pong` before running pytest. Two gotchas that cost real time:
+  (1) **always `pkill -9 -f rpcs3` first** — a stuck/leftover instance holds the port and the new one
+  can't bind; (2) **boot time is wildly variable (seconds to ~7 min)** because RPCS3 recompiles the PPU
+  (LLVM) after every rebuild, so poll patiently (e.g. 90×4s) rather than assuming a fast start. A PPU
+  `assert`/`abort` halts emulation → the socket refuses connections, so on a mid-suite crash, reboot.
